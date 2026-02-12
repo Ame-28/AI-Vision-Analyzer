@@ -1,17 +1,52 @@
 "use client"
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Protect, UserButton } from '@clerk/nextjs';
+import { Protect, UserButton, useUser } from '@clerk/nextjs';
 
 function ImageAnalyzerContent() {
+    const { user, isLoaded } = useUser();
     const [file, setFile] = useState<File | null>(null);
     const [preview, setPreview] = useState<string | null>(null);
     const [feedback, setFeedback] = useState<string>(""); 
     const [loading, setLoading] = useState(false);
+    const [usage, setUsage] = useState<number>(0);
+    const [tier, setTier] = useState<string>("Free");
+    const limit = 1;
+
+    useEffect(() => {
+        if (isLoaded && user) {
+            const storedUsage = (user.unsafeMetadata.usageCount as number) || 0;
+            const storedTier = (user.unsafeMetadata.tier as string) || "Free";
+            setUsage(storedUsage);
+            setTier(storedTier);
+        }
+    }, [isLoaded, user]);
+
+    const isLimitReached = tier === "Free" && usage >= limit;
+
+    const handleUpgrade = async () => {
+        if (!user) return;
+        try {
+            await user.update({ unsafeMetadata: { ...user.unsafeMetadata, tier: "Premium" } });
+            setTier("Premium");
+        } catch (err) { console.error("Upgrade failed", err); }
+    };
+
+    const handleResetToFree = async () => {
+        if (!user) return;
+        try {
+            await user.update({
+                unsafeMetadata: { ...user.unsafeMetadata, tier: "Free", usageCount: 0 }
+            });
+            setTier("Free");
+            setUsage(0);
+            alert("Account reset to Free tier!");
+        } catch (err) { console.error("Reset failed", err); }
+    };
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0] || null;
@@ -24,92 +59,145 @@ function ImageAnalyzerContent() {
     };
 
     const handleUpload = async () => {
-        if (!file) return;
+        if (!file || isLimitReached || !user) return;
         setLoading(true);
         setFeedback(""); 
-
         const formData = new FormData();
         formData.append("file", file);
-
-        const url = process.env.NODE_ENV === "development" 
-            ? "http://127.0.0.1:8000/api/analyze" 
-            : "/api/analyze";
-
+        const url = process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
         try {
             const res = await fetch(url, { method: "POST", body: formData });
             const data = await res.json();
-            if (res.ok) setFeedback(data.feedback); 
-            else setFeedback(`**Error:** ${data.detail || "Server failed."}`);
-        } catch (err) {
-            setFeedback("**Connection Error:** Check your backend deployment.");
-        } finally {
-            setLoading(false);
-        }
+            if (res.ok) {
+                setFeedback(data.feedback); 
+                const newUsage = usage + 1;
+                setUsage(newUsage);
+                await user.update({ unsafeMetadata: { ...user.unsafeMetadata, usageCount: newUsage } });
+            } else { setFeedback(`**Error:** ${data.detail || "Server failed."}`); }
+        } catch (err) { setFeedback("**Connection Error:** Check backend."); }
+        finally { setLoading(false); }
+    };
+
+    const downloadAnalysis = () => {
+        if (!feedback) return;
+        const element = document.createElement("a");
+        const cleanText = feedback.replace(/[#*`]/g, "");
+        const fileBlob = new Blob([cleanText], { type: 'text/plain' });
+        element.href = URL.createObjectURL(fileBlob);
+        element.download = `analysis-${new Date().getTime()}.txt`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
     };
 
     return (
-        <div className="flex flex-col lg:flex-row gap-8 items-start">
+        /* UNIVERSAL WRAPPER: Responsive Height based on Viewport */
+        <div className="flex flex-col lg:flex-row gap-6 w-full max-w-[1400px] mx-auto lg:h-[75vh] items-stretch px-4 lg:px-6">
             
-            {/* LEFT COLUMN: Input & Preview (Sticky) */}
-            <div className="w-full lg:w-5/12 lg:sticky lg:top-24 space-y-6">
-                <div className="bg-white dark:bg-gray-800 rounded-[2rem] p-8 shadow-xl border border-gray-100 dark:border-gray-700">
-                    <h2 className="text-2xl font-black mb-6 bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                        Upload Image
-                    </h2>
-                    
-                    <label className="group relative flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-indigo-200 dark:border-gray-600 rounded-[1.5rem] bg-indigo-50/30 dark:bg-gray-900/50 hover:border-indigo-500 transition-all cursor-pointer overflow-hidden">
-                        {preview ? (
-                            <img src={preview} alt="Preview" className="absolute inset-0 w-full h-full object-cover" />
-                        ) : (
-                            <div className="flex flex-col items-center justify-center p-6 text-center">
-                                <div className="w-12 h-12 mb-4 bg-indigo-500 text-white rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-                                </div>
-                                <p className="text-sm font-bold text-gray-500 dark:text-gray-400">Drop your file here or click to browse</p>
+            {/* LEFT COLUMN */}
+            <div className="flex flex-col w-full lg:w-[45%] gap-6">
+                
+                {/* SUBSCRIPTION PANEL */}
+                <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2.5rem] p-6 shadow-2xl border border-white/20 dark:border-gray-700 flex flex-col justify-center min-h-[140px]">
+                    <div className="flex justify-between items-end mb-4">
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-indigo-500/80 mb-1">Status</p>
+                            <h2 className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white uppercase italic">
+                                {tier} {tier === "Premium" ? "💎" : "✨"}
+                            </h2>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400 mb-1">Credits</p>
+                            <div className="bg-indigo-600 dark:bg-indigo-500 px-4 py-1 rounded-full inline-block shadow-lg shadow-indigo-500/20">
+                                {tier === "Premium" ? (
+                                    <span className="text-[10px] font-black text-white uppercase tracking-widest">Unlimited</span>
+                                ) : (
+                                    <p className="text-sm font-black text-white font-mono">{usage} / {limit}</p>
+                                )}
                             </div>
-                        )}
-                        <input type="file" className="hidden" onChange={handleFileChange} accept="image/*" />
-                    </label>
-
-                    <button 
-                        onClick={handleUpload}
-                        disabled={loading || !file}
-                        className="w-full mt-6 py-4 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white font-bold rounded-2xl shadow-lg hover:shadow-indigo-500/25 transition-all active:scale-[0.98] disabled:opacity-50 uppercase tracking-widest text-xs"
-                    >
-                        {loading ? "Analyzing..." : "Analyze Now"}
-                    </button>
-                    
-                    {file && (
-                        <button 
-                            onClick={() => {setFile(null); setPreview(null); setFeedback("");}}
-                            className="w-full mt-3 py-2 text-xs font-bold text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                            Reset
+                        </div>
+                    </div>
+                    {tier === "Free" && (
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 h-full transition-all duration-700" style={{ width: `${(usage / limit) * 100}%` }} />
+                        </div>
+                    )}
+                    {isLimitReached && (
+                        <button onClick={handleUpgrade} className="mt-4 w-full py-2.5 bg-gray-900 dark:bg-white dark:text-gray-900 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl hover:scale-[1.02] transition-transform">
+                            Upgrade to Premium
                         </button>
                     )}
                 </div>
+
+                {/* UPLOAD PANEL */}
+                <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md rounded-[2.5rem] p-8 lg:p-10 shadow-2xl border border-white/20 dark:border-gray-700 flex-1 flex flex-col min-h-[450px] lg:min-h-0">
+                    <div className="mb-8 text-center shrink-0">
+                        <h1 className="text-3xl font-black tracking-tighter text-gray-900 dark:text-white uppercase leading-none mb-2">Upload Your Image</h1>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] opacity-80">JPG, PNG, WEBP • Max 5MB</p>
+                    </div>
+
+                    <div className="flex-1 flex flex-col space-y-6">
+                        <label className={`group relative flex-1 flex flex-col items-center justify-center w-full border-2 border-dashed rounded-[2rem] transition-all cursor-pointer overflow-hidden ${isLimitReached ? "opacity-40 grayscale pointer-events-none" : "bg-white/40 dark:bg-gray-900/40 border-indigo-100 hover:border-indigo-500"}`}>
+                            {preview ? <img src={preview} alt="Preview" className="absolute inset-0 w-full h-full object-cover" /> : (
+                                <div className="text-center group-hover:scale-105 transition-transform duration-500">
+                                    <div className="text-6xl mb-4 drop-shadow-2xl">🖼️</div>
+                                    <p className="text-lg font-black text-indigo-600 dark:text-indigo-400 tracking-tight">Drop file here</p>
+                                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-2">{file ? file.name : "Ready for Input"}</p>
+                                </div>
+                            )}
+                            <input type="file" className="hidden" onChange={handleFileChange} disabled={isLimitReached} accept="image/*" />
+                        </label>
+
+                        <button onClick={handleUpload} disabled={loading || !file || isLimitReached} className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-2xl shadow-indigo-500/30 active:scale-[0.97] disabled:opacity-30 uppercase tracking-[0.3em] text-xs transition-all flex items-center justify-center gap-3">
+                            {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
+                            {loading ? "Analyzing..." : "Analyze Now"}
+                        </button>
+                    </div>
+
+                    <div className="flex justify-between items-center mt-8 text-[9px] font-black uppercase tracking-widest opacity-30 hover:opacity-100 transition-opacity">
+                        <button onClick={handleResetToFree}>System Reset</button>
+                        {file && <button onClick={() => {setFile(null); setPreview(null); setFeedback("");}} className="text-red-500">[ Clear ]</button>}
+                    </div>
+                </div>
             </div>
 
-            {/* RIGHT COLUMN: AI Response */}
-            <div className="w-full lg:w-7/12">
-                <div className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden min-h-[600px]">
-                    <div className="px-8 py-6 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/20 flex justify-between items-center">
-                        <span className="text-sm font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Analysis Results</span>
-                        {loading && <div className="flex gap-1"><div className="w-2 h-2 bg-indigo-500 rounded-full animate-bounce"></div><div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce [animation-delay:-.3s]"></div><div className="w-2 h-2 bg-pink-500 rounded-full animate-bounce [animation-delay:-.5s]"></div></div>}
+            {/* RIGHT COLUMN (ANALYSIS) */}
+            <div className="w-full lg:w-[55%] h-full min-h-[500px] lg:min-h-0">
+                <div className="bg-gray-900 dark:bg-gray-950 rounded-[2.5rem] shadow-2xl flex flex-col h-full border border-white/5 overflow-hidden">
+                    <div className="px-10 py-8 border-b border-white/5 flex justify-between items-center bg-white/5 shrink-0">
+                        <div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-500 block mb-1">Engine Output</span>
+                            <h3 className="text-sm font-black text-white uppercase tracking-tight">Analysis Results</h3>
+                        </div>
+                        {feedback && !loading && (
+                            <button onClick={downloadAnalysis} className="text-[10px] font-black uppercase tracking-widest bg-white text-gray-900 px-6 py-3 rounded-xl hover:bg-indigo-500 hover:text-white transition-all active:scale-95 shadow-xl">
+                                DOWNLOAD TXT
+                            </button>
+                        )}
                     </div>
-                    
-                    <div className="p-8 sm:p-12">
-                        {feedback ? (
-                            <div className="prose dark:prose-invert max-w-none prose-indigo prose-img:rounded-xl">
-                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                                    {feedback}
-                                </ReactMarkdown>
+
+                    <div className="p-10 lg:p-14 flex-1 overflow-y-auto no-scrollbar scroll-smooth">
+                        {loading ? (
+                            <div className="flex flex-col items-center justify-center h-full space-y-6">
+                                <div className="flex gap-3">
+                                    <div className="w-4 h-4 bg-indigo-500 rounded-full animate-ping"></div>
+                                    <div className="w-4 h-4 bg-purple-500 rounded-full animate-ping [animation-delay:0.2s]"></div>
+                                    <div className="w-4 h-4 bg-pink-500 rounded-full animate-ping [animation-delay:0.4s]"></div>
+                                </div>
+                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-500">Decoding Visual Data</p>
+                            </div>
+                        ) : feedback ? (
+                            <div className="prose prose-invert prose-indigo max-w-none 
+                                prose-p:text-gray-400 prose-p:leading-relaxed prose-p:text-lg
+                                prose-headings:text-white prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tighter
+                                prose-strong:text-indigo-400 prose-hr:border-white/10">
+                                <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{feedback}</ReactMarkdown>
                             </div>
                         ) : (
-                            <div className="flex flex-col items-center justify-center py-20 text-center opacity-40">
-                                <svg className="w-20 h-20 mb-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                                <h3 className="text-2xl font-bold mb-2">Ready for Action</h3>
-                                <p className="max-w-xs mx-auto">Upload an image on the left to see the AI magic happen here.</p>
+                            <div className="flex flex-col items-center justify-center h-full text-center opacity-20">
+                                <div className="text-8xl mb-6 grayscale">📡</div>
+                                <h4 className="text-2xl font-black text-white uppercase mb-2">Awaiting Data</h4>
+                                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Feed the AI an image to start</p>
                             </div>
                         )}
                     </div>
@@ -121,29 +209,31 @@ function ImageAnalyzerContent() {
 
 export default function AnalyzePage() {
     const router = useRouter();
-
     return (
-        <main className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-50">
-            <header className="fixed top-0 w-full bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl shadow-sm z-50 border-b border-gray-100 dark:border-gray-700">
-                <div className="max-w-7xl mx-auto px-6 flex justify-between items-center h-20">
-                    <div className="flex items-center gap-6">
-                        <button onClick={() => router.back()} className="group flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-indigo-600 transition-colors">
-                            <div className="p-2 rounded-full border border-gray-200 group-hover:border-indigo-500 group-hover:bg-indigo-50 transition-all"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" /></svg></div>
+        <main className="min-h-screen bg-[#0a0a0c] text-white flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+            {/* AMBIENT BACKGROUND GLOWS */}
+            <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-600/10 rounded-full blur-[120px] pointer-events-none" />
+            <div className="fixed bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/10 rounded-full blur-[120px] pointer-events-none" />
+
+            <header className="fixed top-0 w-full bg-black/40 backdrop-blur-3xl z-50 border-b border-white/5 h-20">
+                <div className="max-w-[1400px] mx-auto px-6 lg:px-10 flex justify-between items-center h-full">
+                    <div className="flex items-center gap-8">
+                        <button onClick={() => router.back()} className="group flex items-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 hover:text-white transition-all">
+                            <div className="p-2.5 rounded-full border border-white/10 group-hover:border-white/40 transition-all">
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+                            </div>
                             Back
                         </button>
-                        <h1 className="text-xl font-black tracking-tighter text-indigo-600 dark:text-indigo-400">AI VISION ANALYZER</h1>
+                        <h1 className="text-2xl font-black tracking-tighter uppercase italic">
+                            Vision <span className="text-indigo-500">Analyzer</span>
+                        </h1>
                     </div>
-                    <UserButton appearance={{ elements: { avatarBox: "w-10 h-10 border-2 border-indigo-500/20" } }} />
+                    <UserButton appearance={{ elements: { userButtonAvatarBox: "w-10 h-10 border border-white/10" } }} />
                 </div>
             </header>
-
-            <div className="pt-28 pb-12 px-6 max-w-7xl mx-auto">
-                <Protect fallback={
-                    <div className="flex flex-col items-center justify-center h-[60vh] text-center">
-                        <h2 className="text-5xl font-black mb-4">STOP!</h2>
-                        <p className="text-xl text-gray-500 max-w-md">You need to be signed in to access the vision laboratory.</p>
-                    </div>
-                }>
+            
+            <div className="flex-1 flex items-center justify-center pt-24 lg:pt-20 pb-12 overflow-y-auto lg:overflow-hidden">
+                <Protect fallback={<div className="font-black uppercase text-6xl tracking-tighter opacity-10">Protected</div>}>
                     <ImageAnalyzerContent />
                 </Protect>
             </div>

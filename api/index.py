@@ -3,6 +3,14 @@ import base64
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
+from dotenv import load_dotenv
+from pathlib import Path
+
+# for local testing
+# This finds .env.local in your root folder
+base_dir = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=base_dir / ".env.local")
+
 
 app = FastAPI()
 
@@ -16,6 +24,7 @@ app.add_middleware(
 
 # Vercel provides environment variables via os.getenv
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 @app.get("/api/health")
 def health():
