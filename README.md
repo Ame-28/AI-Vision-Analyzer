@@ -71,11 +71,17 @@ pnpm install
 Create a `.env.local` file in the root directory:
 
 ```env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=your_clerk_pub_key
-CLERK_SECRET_KEY=your_clerk_secret_key
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_STRIPE_CHECKOUT_URL=your_stripe_payment_link
+# Stripe
+NEXT_PUBLIC_STRIPE_CHECKOUT_URL=
+STRIPE_SECRET_KEY=
+
+# OpenAI
+OPENAI_API_KEY=
+
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+CLERK_JWKS_URL=
 
 ```
 
