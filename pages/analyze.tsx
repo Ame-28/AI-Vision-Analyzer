@@ -17,6 +17,10 @@ function ImageAnalyzerContent() {
     const [tier, setTier] = useState<string>("Free");
     const limit = 1; 
 
+    // Constants for validation
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+    const ALLOWED_FORMATS = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
     useEffect(() => {
         if (isLoaded && user) {
             const storedUsage = (user.unsafeMetadata.usageCount as number) || 0;
@@ -35,8 +39,27 @@ function ImageAnalyzerContent() {
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0] || null;
-        setFile(selectedFile);
+        
         if (selectedFile) {
+            // Check Format
+            if (!ALLOWED_FORMATS.includes(selectedFile.type)) {
+                setFeedback("**Unsupported Format:** Please use JPG, PNG, or WebP.");
+                setFile(null);
+                setPreview(null);
+                return;
+            }
+
+            // Check Size
+            if (selectedFile.size > MAX_FILE_SIZE) {
+                setFeedback("**File Too Large:** Maximum size is 5MB. Please choose a smaller image.");
+                setFile(null);
+                setPreview(null);
+                return;
+            }
+
+            // If valid
+            setFeedback("");
+            setFile(selectedFile);
             const reader = new FileReader();
             reader.onloadend = () => setPreview(reader.result as string);
             reader.readAsDataURL(selectedFile);
@@ -45,19 +68,14 @@ function ImageAnalyzerContent() {
 
     const handleUpload = async () => {
         if (!file || isLimitReached || !user) return;
-        
         setLoading(true);
         setFeedback(""); 
-        
         const formData = new FormData();
         formData.append("file", file);
+        const url = process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
         
-        const url = process.env.NODE_ENV === "development" 
-            ? "http://127.0.0.1:8000/api/analyze" 
-            : "/api/analyze";
-            
         try {
-            // FIXED: Added headers to identify User ID and Tier to the Backend
+            // Updated fetch with user headers
             const res = await fetch(url, { 
                 method: "POST", 
                 body: formData,
@@ -71,25 +89,21 @@ function ImageAnalyzerContent() {
             
             if (res.ok) {
                 setFeedback(data.feedback); 
-                
-                // Update Local State and Clerk Metadata
                 const newUsage = usage + 1;
                 setUsage(newUsage);
-                await user.update({ 
-                    unsafeMetadata: { ...user.unsafeMetadata, usageCount: newUsage } 
-                });
+                await user.update({ unsafeMetadata: { ...user.unsafeMetadata, usageCount: newUsage } });
             } else { 
-                // FIXED: Handling specific requirement status codes
+                // Specific error handling for status codes
                 if (res.status === 413) {
-                    setFeedback("**File Too Large:** Maximum size is 5MB. Please compress your image.");
+                    setFeedback("⚠️**Error:** File is too large for the server (Max 5MB).");
                 } else if (res.status === 429) {
-                    setFeedback("**Limit Reached:** You have used your 1 free scan. Upgrade to Premium for unlimited access!");
+                    setFeedback("**Limit Reached:** Please upgrade to Premium for more scans.");
                 } else {
-                    setFeedback(`**Error:** ${data.detail || "Analysis failed."}`); 
+                    setFeedback(`**Error:** ${data.detail || "Server failed."}`); 
                 }
             }
         } catch (err) { 
-            setFeedback("**Connection Error:** The AI Engine is unreachable. Please check if the backend is running."); 
+            setFeedback("**Connection Error:** Check if the backend is running."); 
         } finally { 
             setLoading(false); 
         }
@@ -233,7 +247,7 @@ export default function AnalyzePage() {
                             </div>
                             Exit Workspace
                         </button>
-                        <h1 className="hidden md:block text-2xl font-black tracking-tighter text-white uppercase italic">Vision <span className="text-indigo-500">Analyzer</span></h1>
+                        <h1 className="hidden md:block text-2xl font-black tracking-tighter text-white uppercase italic"> AI Vision <span className="text-indigo-500">Analyzer</span></h1>
                     </div>
                     <UserButton appearance={{ elements: { userButtonAvatarBox: "w-10 h-10 border border-white/10" } }} />
                 </div>
