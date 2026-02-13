@@ -27,6 +27,8 @@ function ImageAnalyzerContent() {
             const storedTier = (user.unsafeMetadata.tier as string) || "Free";
             setUsage(storedUsage);
             setTier(storedTier);
+            fetchUsage();
+          
         }
     }, [isLoaded, user]);
 
@@ -108,7 +110,31 @@ function ImageAnalyzerContent() {
             setLoading(false); 
         }
     };
-
+    const fetchUsage = async () => {
+      if (!user) return;
+  
+      // Use the same URL logic as handleUpload
+      const url = process.env.NODE_ENV === "development" 
+          ? "http://127.0.0.1:8000/api/usage" 
+          : "/api/usage";
+  
+      try {
+          const response = await fetch(url, {
+              method: "GET",
+              headers: {
+                  "X-User-Id": user.id,
+                  "X-User-Tier": tier || "Free"
+              }
+          });
+  
+          const data = await response.json();
+          if (response.ok) {
+              setUsage(data.analyses_used); 
+          }
+      } catch (err) {
+          console.error("Failed to sync usage with backend:", err);
+      }
+  };
     const downloadAnalysis = () => {
         if (!feedback) return;
         const element = document.createElement("a");

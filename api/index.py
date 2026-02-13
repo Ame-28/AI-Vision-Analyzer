@@ -15,7 +15,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
-    allow_headers=["*"],
+    # Explicitly allow your custom headers
+    allow_headers=["X-User-Id", "X-User-Tier", "Content-Type", "Authorization"],
 )
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -108,3 +109,28 @@ async def analyze_image(request: Request, file: UploadFile = File(...)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="An unexpected error occurred during analysis."
         )
+
+@app.get("/api/usage")
+async def check_usage(request: Request):
+    """
+    Return user's current usage and tier based on headers.
+    """
+    # Extract data from headers (same as /analyze endpoint)
+    user_id = request.headers.get("X-User-Id")
+    user_tier = request.headers.get("X-User-Tier", "Free")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User identification missing")
+
+    # Retrieve current count from the in-memory usage_db
+    analyses_used = usage_db.get(user_id, 0)
+    
+    # Determine limit string/value
+    usage_limit = 1 if user_tier == "Free" else "unlimited"
+
+    return {
+        "user_id": user_id,
+        "tier": user_tier,
+        "analyses_used": analyses_used,
+        "limit": usage_limit
+    }

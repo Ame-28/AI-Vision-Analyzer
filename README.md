@@ -92,27 +92,66 @@ Open [http://localhost:3000](https://www.google.com/search?q=http://localhost:30
 
 ## 4. API Documentation
 
-### Base URL: `/api`
+**Base URL:** `/api`  
+The application communicates with a Python-based FastAPI backend. All protected endpoints require custom identification headers.
 
-The application communicates with a Python-based FastAPI backend.
+### Required Headers (for Protected Endpoints)
 
-#### `POST /analyze`
+| Header | Description |
+| :--- | :--- |
+| `X-User-Id` | The unique Clerk User ID. |
+| `X-User-Tier` | The user's membership level (`Free` or `Premium`). |
 
-* **Description:** Uploads an image for AI processing.
-* **Auth Required:** Yes (`X-User-Id` and `X-User-Tier` headers).
+---
+
+### POST /analyze
+
+* **Description:** Processes an image using GPT-4o-mini and returns a detailed description.
+* **Auth Required:** Yes
 * **Request Format:** `multipart/form-data`
-* `file`: The image file (Max 5MB).
-
-
+    * `file`: Binary image data (Supported: JPG, PNG, WEBP. Max: 5MB).
 * **Response Format:**
+    ```json
+    {
+      "feedback": "## Analysis Result\nThe image contains..."
+    }
+    ```
+* **Error Codes:**
+    * `401`: User identification missing.
+    * `413`: File size exceeds 5MB.
+    * `429`: Free tier limit reached.
 
-```json
-{
-  "feedback": "# Analysis Summary\nThe image contains...",
-  "status": "success"
-}
+---
 
-```
+### GET /usage
+
+* **Description:** Retrieves the current scan count and tier limits for a specific user from the in-memory database.
+* **Auth Required:** Yes
+* **Response Format:**
+    ```json
+    {
+      "user_id": "user_2m...",
+      "tier": "Free",
+      "analyses_used": 1,
+      "limit": 1
+    }
+    ```
+* **Note:** The `limit` field returns `1` for Free users and `"unlimited"` for Premium users.
+
+---
+
+### GET /health
+
+* **Description:** Simple health check to verify backend connectivity and API key configuration.
+* **Auth Required:** No
+* **Response Format:**
+    ```json
+    {
+      "status": "online",
+      "key_configured": true
+    }
+    ```
+
 
 ---
 
