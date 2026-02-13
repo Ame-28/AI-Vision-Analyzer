@@ -45,22 +45,54 @@ function ImageAnalyzerContent() {
 
     const handleUpload = async () => {
         if (!file || isLimitReached || !user) return;
+        
         setLoading(true);
         setFeedback(""); 
+        
         const formData = new FormData();
         formData.append("file", file);
-        const url = process.env.NODE_ENV === "development" ? "http://127.0.0.1:8000/api/analyze" : "/api/analyze";
+        
+        const url = process.env.NODE_ENV === "development" 
+            ? "http://127.0.0.1:8000/api/analyze" 
+            : "/api/analyze";
+            
         try {
-            const res = await fetch(url, { method: "POST", body: formData });
+            // FIXED: Added headers to identify User ID and Tier to the Backend
+            const res = await fetch(url, { 
+                method: "POST", 
+                body: formData,
+                headers: {
+                    "X-User-Id": user.id,
+                    "X-User-Tier": tier 
+                }
+            });
+            
             const data = await res.json();
+            
             if (res.ok) {
                 setFeedback(data.feedback); 
+                
+                // Update Local State and Clerk Metadata
                 const newUsage = usage + 1;
                 setUsage(newUsage);
-                await user.update({ unsafeMetadata: { ...user.unsafeMetadata, usageCount: newUsage } });
-            } else { setFeedback(`**Error:** ${data.detail || "Server failed."}`); }
-        } catch (err) { setFeedback("**Connection Error:** Check backend."); }
-        finally { setLoading(false); }
+                await user.update({ 
+                    unsafeMetadata: { ...user.unsafeMetadata, usageCount: newUsage } 
+                });
+            } else { 
+                // FIXED: Handling specific requirement status codes
+                if (res.status === 413) {
+                    setFeedback("**File Too Large:** Maximum size is 5MB. Please compress your image.");
+                } else if (res.status === 429) {
+                    setFeedback("**Limit Reached:** You have used your 1 free scan. Upgrade to Premium for unlimited access!");
+                } else {
+                    setFeedback(`**Error:** ${data.detail || "Analysis failed."}`); 
+                }
+            }
+        } catch (err) { 
+            setFeedback("**Connection Error:** The AI Engine is unreachable. Please check if the backend is running."); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     const downloadAnalysis = () => {
@@ -112,7 +144,7 @@ function ImageAnalyzerContent() {
                 <div className="bg-white/5 border border-white/10 rounded-[3rem] p-8 flex-1 flex flex-col relative">
                     <div className="mb-8">
                         <h2 className="text-2xl font-black italic uppercase tracking-tighter text-white mb-2">Input Source</h2>
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Neural Vision Pipeline V3.0</p>
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Accept: .jpg, .jpeg, .png, .webp | Max size: 5MB</p>
                     </div>
                     <div className="flex-1 flex flex-col space-y-6">
                         <label className={`relative flex-1 flex flex-col items-center justify-center w-full border border-dashed rounded-[2.5rem] transition-all cursor-pointer overflow-hidden ${isLimitReached ? "opacity-20 grayscale" : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05] hover:border-indigo-500/50"}`}>
