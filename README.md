@@ -81,9 +81,26 @@ NEXT_PUBLIC_STRIPE_CHECKOUT_URL=your_stripe_payment_link
 
 ### Step 4: Run Locally
 
-```bash
-npm run dev
+To run the full application, you need to start both the backend server and the frontend development server simultaneously in separate terminals.
 
+#### 1. Start the Backend (Python)
+Open a terminal and navigate to your backend directory:
+```bash
+# Navigate to backend folder
+cd backend
+
+# Run the FastAPI server
+# If you are on Windows, use 'python -m uvicorn' or 'uvicorn'
+uvicorn main:app --reload --port 8000
+```
+#### 2. Start the frontend (Next.js)
+Open a terminal and navigate to your frontend directory:
+```bash
+# Install dependencies if you haven't already
+npm install
+
+# Run the development server
+npm run dev
 ```
 
 Open [http://localhost:3000](https://www.google.com/search?q=http://localhost:3000) to see the result.
@@ -173,7 +190,7 @@ The application communicates with a Python-based FastAPI backend. All protected 
 
 ## 6. Live Demo
 
-* **Application Link:** [https://ai-vision-analyzer.vercel.app](https://www.google.com/search?q=https://ai-vision-analyzer.vercel.app)
+* **Application Link:** [ai-vision-service-ten.vercel.app]
 * **Test Credentials:** * *Create a free account using any email via Clerk's sign-up flow.*
 
 ---
